@@ -1,95 +1,92 @@
-# Token Radar — Empirical Bayes pre-token valuation terminal
+# Token Radar — Empirical Bayes Pre-Token Valuation Terminal
 
 ![token-radar-01](https://make.fun/badge/token-radar-01.svg)
 ![rank](https://make.fun/badge/token-radar-01/azrim/token-radar-eb/rank.svg)
 ![reward](https://make.fun/badge/token-radar-01/azrim/token-radar-eb/reward.svg)
 
-A token launch radar for make.fun's [token-radar-01](https://make.fun/c/token-radar-01) bounty: it
-ranks pre-token protocols by what a token would be worth if the protocol's record stayed as it is,
-and shows what farming each one costs before any of them issues one. The entry's implied value is
-its own claim, never a prediction of a launch and never a price.
+A token launch radar for make.fun's [token-radar-01](https://make.fun/bounty/token-radar-01) bounty: it ranks pre-token protocols by expected token claim (`Implied Value = Value if it launches × Launch odds`) fitted directly on the snapshot's traded anchors and standalone launch records, and evaluates whether farming each protocol is net positive after 12 weeks of chain gas and bridge costs. Every implied value is this model's own empirical claim, never a price or a guarantee of a token launch.
 
-## The model: empirical-Bayes traded comps
+## 1. Deterministic 758-Protocol Partition
 
-The 758-protocol snapshot splits deterministically into four sets:
+Every record in the sealed `2026-11-14` DefiLlama snapshot (`758` protocols) is accounted for deterministically with zero hardcoded protocol names or slugs:
 
-- **Ranked pre-token board** — the house watchlist's 40 protocols (TVL ≥ $50M, no token recorded,
-  no wrapper/bridge/liquid-staking product) plus 138 clean early protocols below the floor, 178
-  rows in all. Excluded derivative categories, versioned pools, wrapped/staked names and
-  exchange-prefixed products are tracked for transparency, never ranked (164 rows set aside).
-- **Live comps** — the 119 traded protocols with both a market cap and a TVL. They are the market's
-  own values, never mixed into the ranked board; they are the curve the model is fit on.
+- **198 Ranked Pre-Token Protocols** — all clean standalone pre-token protocols (`token_symbol == null`), spanning:
+  - **40 Watchlist (`≥ $50M` TVL)** — 100% (`40/40`) of `snapshot.watchlist`.
+  - **20 Off-List Clean (`≥ $50M` TVL)** — standalone pre-token protocols above the $50M floor not listed in `snapshot.watchlist`.
+  - **138 Below Floor (`< $50M` TVL)** — clean early-stage standalone pre-token protocols.
+- **119 Unique Traded Anchors** — non-CEX protocols with both positive `mcap_usd` and `tvl_usd`, deduplicated one-per-ticker by largest TVL (`92` clean standalone anchors used for nearest-neighbor comparables).
+- **297 Token Sub-Pools & CEX Records** — `288` token-bearing sub-pools without standalone `mcap_usd` plus `9` centralized exchanges.
+- **144 Excluded Pre-Token Derivatives** — bridges (`Bridge`, `Canonical Bridge`), liquid staking/restaking (`Liquid Staking`, `Liquid Restaking`, `Restaked BTC`), versioned pool splits (`V2`/`v2`/`2.0`), wrapped/staked wrappers, and exchange-prefixed products (`Binance`, `Coinbase`, `Bybit`, `Kraken`, `Bitget`, `OKX`, `Bitfinex`, `Gemini`).
 
-The implied MCap/TVL multiple is fit on those 119 anchors and shrunk per category:
+Total: `198 + 119 + 297 + 144 = 758` snapshot records.
 
-```
-FDV  =  TVL · M_cat · (TVL/M0)^(ε−1) · (1 + w·g7d) · ((1−s) + s·age/1095) · (1 + c·ln #chains)
-```
+## 2. Two-Part Valuation Model (`comps-2`)
 
-- **M_cat** — the category's empirical-Bayes multiple: its traded anchors' log-median MCap/TVL,
-  shrunk toward the global log-median with pseudo-count k = 5 (thin categories lean on the market).
-- **(TVL/M0)^(ε−1)** — sub-linear size elasticity, ε = 0.72 around the anchors' median TVL: bigger
-  protocols carry smaller multiples, the way the traded market actually prices them.
-- **(1 + w·g7d)** — the 7-day TVL move, clamped −50%…+100%, weight w = 0.40.
-- **((1−s) + s·age/1095)** — tokenless-age maturity from 0.65 to 1.00 over 1,095 days; unknown
-  ages take the anchors' median age.
-- **(1 + c·ln #chains)** — multi-chain breadth, c = 0.04. No protocol name is ever special-cased.
+### Part A — Conditional Valuation (`Value if it launches`)
 
-**Validation** ships with the board: deterministic 5-fold out-of-sample cross-validation (folds by
-slug order) and a temporal walk-forward split (train on the oldest 60% by listing day), each
-reporting a Spearman rank correlation, a median absolute log error and the empirical P25–P75 band
-of the signed log residuals. That residual band becomes every row's implied-value IQR band, and
-each pre-token protocol carries its 4 nearest traded DefiLlama comparables, matched on category,
-log-TVL distance and chain overlap.
-
-**Farm plans are costed, not slogans.** Every row gets 5 concrete steps: the chain's real
-transaction cost (Ethereum L1 vs Arbitrum/Base/Optimism/Solana/Sui/BNB/Bitcoin and friends), a
-TVL-scaled deposit ($100–$1,000) with its pool-share percentage, weekly qualifying actions with a
-time budget, a category-specific risk guard (impermanent loss, loan-to-value caps, RWA KYC gates,
-restaking unbonding cooldowns, curator mandates) and explicit exit triggers over a 30/45/60-day
-holding horizon keyed to the protocol's tokenless age.
-
-## The dashboard
-
-A dark obsidian research terminal — no frameworks, no fonts, no network, rendered entirely offline:
-
-- 5-KPI calibration strip: watchlist coverage, ranked count with №1, live comps, both validation
-  correlations with the median log error, excluded derivatives.
-- An interactive **valuation sandbox** showing the exact formula, with live sliders for TVL
-  elasticity, 7-day growth weight and maturity spread, re-ranking the board as you drag.
-- Tier tabs (all pre-token / watchlist / early under $50M / live comps / excluded), live search,
-  category and chain selectors and a match-count badge.
-- A sortable board with TVL, 7-day delta, tokenless age, category multiple, implied FDV with its
-  P25–P75 band drawn as a bar, and each farm plan's capital, gas and holding summary.
-- A detail drawer per protocol: the valuation decomposition, the four traded comparables, a
-  deposit-sizing selector ($250/$1K/$5K/$25K with pool share and gas drag) and the numbered
-  costed farm execution timeline.
-
-## Run it
+Fitted by ordinary least squares with empirical-Bayes shrinkage on the `119` unique traded anchors:
 
 ```
+ln(MCap_cond) = a + b · ln(TVL · (1 + g_7d)^w) + ln(M_cat)
+```
+
+- **Sub-linear Size Curve (`a = 6.12`, `b = 0.567`)**: OLS slope shrunk `18%` toward sub-linear conservatism so multi-billion TVL protocols do not extrapolate linearly.
+- **7-Day Forward TVL Momentum (`w = 0.35`)**: 7-day TVL growth winsorized to `[-45%, +85%]`.
+- **Empirical-Bayes Category Premium (`M_cat`, `k = 10`, `min_n = 5`)**: Category log-residual median shrunk toward `0` with pseudo-count `k = 10` so thin categories revert safely toward the global size curve.
+
+### Part B — Cure-Rate Survival Launch Odds (`P(launch | category, age)`)
+
+Estimated across all `442` clean standalone protocols (`244` launched + `198` pre-token):
+
+- **Baseline Launch Rate**: Category launch share shrunk toward the mature `2yr+` standalone cohort launch rate (`79.4%`) with pseudo-count `k = 8`.
+- **Tokenless Age Hazard**: Remaining launch odds decay exponentially as a protocol remains tokenless past listing (`exp(-age_days / 720)` above the cure floor), bounded in `[12%, 88%]`.
+- **Held-Out Launch Accuracy**: Leave-one-out classification across all `442` standalone protocols calls **71.7% right (`317/442`)** against a **55.2% base rate**.
+
+### Uncertainty Bands, 200-Refit Rank Stability & Nearest Traded Comparables
+
+- **Multiplicative Error Bands**: Leave-one-out log residuals on the `119` traded anchors define each protocol's empirical **P25–P75** (`50%`) and **P10–P90** (`80%`) implied-value intervals.
+- **Bootstrap Rank Range**: `200` deterministic `80%` subsample refits re-estimate `(a, b, M_cat, launch_odds)` and record every protocol's `[P10, P90]` rank range (`#1..#7` for `#1 Bittensor dTAO`).
+- **TVL-Scale-First Nearest Comparables**: Each protocol is matched against the `92` clean standalone traded anchors by `dist = |Δ ln TVL| + 0.85·(category mismatch) − 0.35·(shared chains)` so multi-hundred-million protocols pair with scale-appropriate comparables.
+
+## 3. Blind Out-of-Sample Validation & Sign-Flip Falsification
+
+Both **Leave-One-Out (`EACH LEFT OUT`, `119` anchors)** and **Temporal Walk-Forward (`OLDER → NEWER`, train on oldest `60%`, test blindly on newest `40%`)** are computed dynamically in `dashboard/model.js` and rendered in the right-hand verification panel:
+
+| Step / Model Specification | LOO Typical Miss (`P75`) | Walk-Forward Typical Miss (`P75`) |
+| --- | --- | --- |
+| **1. Flat TVL multiple** (global median MCap/TVL) | `×4.94` (`P75 ×10.21`) | `×4.60` (`P75 ×11.07`) |
+| **2. Size curve** (`exp(a) · TVL^b`) | `×3.33` (`P75 ×8.75`) | `×2.78` (`P75 ×10.07`) |
+| **3. + 7-day momentum** (winsorized 7d TVL move) | `×3.28` (`P75 ×9.05`) | `×2.79` (`P75 ×10.26`) |
+| **4. Momentum, sign flipped** (falsification check) | `×3.44` (`P75 ×8.71`) | `×2.78` (`P75 ×9.68`) |
+| **5. + Category premium** (full `comps-2` model) | **`×3.22` (`P75 ×8.30`)** | **`×2.54` (`P75 ×10.46`)** |
+
+- **Interval Honesty Check**: Out-of-sample coverage holds **47% (`56/119`)** within `×3` of the figure, **50% (`59/119`)** inside **P25–P75** (matching the stated `50%` band), and **77% (`92/119`)** inside **P10–P90** (vs stated `80%`).
+
+## 4. Dollar-Netted 12-Week Farm Plans & 3×3 Sensitivity Matrix
+
+Every ranked protocol receives a costed 12-week execution plan and break-even verdict (`71 FARM / 61 MARGINAL / 66 SKIP` at plan size and `7%` drop share):
+
+- **Plan Deposit Sizing**: Scaled to protocol TVL (`$1,000` under `$20M` TVL, `$2,500` for `$20M–$200M`, `$5,000` above `$200M`).
+- **Real Chain Gas Table**: Per-transaction costs from Ethereum L1 (`$3.80/tx`) and Bitcoin (`$2.80/tx`) down to Arbitrum/Base/Optimism/Ink/Monad (`$0.04–$0.18/tx`) and Solana/Sui/Aptos (`$0.02–$0.03/tx`), summed across setup + 12 weekly maintenance actions + exit.
+- **3×3 Net-of-Fees Matrix**: Evaluates `Net ($) = Expected Drop − 12w Fees` across **Drop Share (`3.5%`, `7%`, `14%`) × Deposit (`$1,000`, `Plan size`, `$10,000`)**, interactive both on the main toolbar and inside every protocol's 3-column detail modal.
+- **6 Concrete Execution Steps**: Each `board.json` row includes 6 numbered steps (`40..450` chars) with exact dollar amounts, pool share percentages, deterministic calendar review dates (`2027-02-06` from snapshot `2026-11-14`), and `-30% to -40%` TVL drawdown exit triggers.
+
+## 5. Run & Verify
+
+```bash
 mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts --input ../input/snapshot.json
 ```
 
-Node 22 or later, standard library only, no install. The program writes `out/board.json`,
-`out/data.js`, copies `dashboard/` and `screenshots/` beside it and writes `out/dossier.json`.
-Open `out/dashboard/index.html` in a browser — the page reads `../data.js`, never the network.
+Node 22+ standard library only, zero external packages, zero network calls. Generates `out/board.json`, `out/data.js`, `out/dashboard/`, `out/screenshots/`, and `out/dossier.json`.
 
-## Layout
-
-| Path | What it is |
+| Path | Role |
 | --- | --- |
-| `main.ts` | the entrypoint: read, score, verify, write board/data/dossier |
-| `dashboard/model.js` | the whole valuation, validation, comparables and farm-plan engine (UMD) |
-| `dashboard/index.html`, `app.css`, `app.js` | the offline terminal page |
-| `vendor/makefun-board.ts` | make.fun's dossier library, unchanged |
-| `screenshots/` | the board, a detail view and a filtered view, 1440×960 |
-
-`implied_value_usd` is this model's own claim about a token a protocol may one day issue. A
-protocol whose DefiLlama record shows no token may still have one, and a high rank is a research
-queue, not advice.
+| `main.ts` | CLI entrypoint: loads snapshot, runs `comps-2`, enforces gate invariants, writes outputs |
+| `dashboard/model.js` | Self-contained empirical-Bayes valuation, LOO/walk-forward validation, comparables & farm engine |
+| `dashboard/index.html`, `app.css`, `app.js` | Offline 1440×900 dark financial terminal with live filters, OOS check & 3-column detail modal |
+| `vendor/makefun-board.ts` | Official make.fun dossier bundler (byte-for-byte unchanged) |
+| `screenshots/` | `1-board.jpg`, `2-detail.jpg`, `3-filtered.jpg` (`1440×900` JPEG) |
 
 ---
 
-Built for the [token-radar-01 bounty on make.fun](https://make.fun/c/token-radar-01?ref=05xv4825) —
-the leaderboard, the live badges and the competition's rules live there.
+Built for the [token-radar-01 bounty on make.fun](https://make.fun/bounty/token-radar-01) ([leaderboard & rules](https://make.fun/c/token-radar-01?ref=05xv4825)).
