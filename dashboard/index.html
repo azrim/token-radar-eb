@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Token Radar — Empirical Bayes pre-token valuation terminal</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="glyph" aria-hidden="true">◈</span>
+    <div class="brand-text"><h1>Token Radar</h1><p class="tagline">Empirical Bayes pre-token valuation · comps fitted on <span id="live-count" class="num">—</span> traded anchors</p></div>
+  </div>
+  <div class="top-meta">
+    <span class="pill pill-info" id="model-version">model —</span>
+    <span class="pill" id="as-of">snapshot —</span>
+    <span class="pill" id="floor-pill">floor —</span>
+  </div>
+</header>
+<section class="kpis" aria-label="Calibration strip">
+  <div class="kpi"><span class="kpi-label">Watchlist coverage</span><span class="kpi-value"><span id="kpi-watch" class="num">—</span><span class="kpi-sub">of the house's slugs ranked</span></span></div>
+  <div class="kpi"><span class="kpi-label">Pre-token ranked</span><span class="kpi-value"><span id="kpi-ranked" class="num">—</span><span class="kpi-sub" id="kpi-top1">№1 —</span></span></div>
+  <div class="kpi"><span class="kpi-label">Live comps anchors</span><span class="kpi-value"><span id="kpi-live" class="num">—</span><span class="kpi-sub">traded MCap/TVL fits</span></span></div>
+  <div class="kpi"><span class="kpi-label">5-fold OOS · walk-forward</span><span class="kpi-value"><span id="kpi-cv" class="num">—</span><span class="kpi-sub" id="kpi-walk">ρ — · |Δlog| —</span></span></div>
+  <div class="kpi"><span class="kpi-label">Excluded derivatives</span><span class="kpi-value"><span id="kpi-excluded" class="num">—</span><span class="kpi-sub">wrappers · bridges · CEX</span></span></div>
+</section>
+<section class="sandbox card" aria-label="Valuation sandbox">
+  <div class="sandbox-head"><h2>Valuation sandbox</h2><button type="button" id="sandbox-reset" class="btn-ghost">Reset</button></div>
+  <p class="formula" id="formula">FDV = TVL · M<sub>cat</sub> · (TVL/M<sub>0</sub>)<sup>ε−1</sup> · (1 + w·g<sub>7d</sub>) · ((1−s) + s·age/1095) · (1 + c·ln #chains)</p>
+  <div class="sliders">
+    <label class="slider"><span class="slider-name">TVL elasticity ε <b class="num" id="val-elasticity">0.72</b></span><input type="range" id="s-elasticity" min="0.50" max="1.00" step="0.01" value="0.72"></label>
+    <label class="slider"><span class="slider-name">7d growth weight w <b class="num" id="val-growth">0.40</b></span><input type="range" id="s-growth" min="0" max="1" step="0.05" value="0.40"></label>
+    <label class="slider"><span class="slider-name">Maturity spread s <b class="num" id="val-spread">0.35</b></span><input type="range" id="s-spread" min="0" max="0.50" step="0.05" value="0.35"></label>
+  </div>
+  <p class="sandbox-note">Sliders re-score every row live. M<sub>cat</sub> is the traded anchors' per-category log-median MCap/TVL shrunk toward the global log-median (k = 5); unknown age takes the anchors' median.</p>
+</section>
+<section class="toolbar" aria-label="Filters">
+  <div class="tabs" id="tabs" role="tablist">
+    <button type="button" class="tab active" data-tier="ranked" role="tab">All pre-token <b class="num" id="t-ranked">0</b></button>
+    <button type="button" class="tab" data-tier="watchlist" role="tab">Watchlist <b class="num" id="t-watchlist">0</b></button>
+    <button type="button" class="tab" data-tier="early" role="tab">Early &lt; $50M <b class="num" id="t-early">0</b></button>
+    <button type="button" class="tab" data-tier="live" role="tab">Live comps <b class="num" id="t-live">0</b></button>
+    <button type="button" class="tab" data-tier="excluded" role="tab">Excluded <b class="num" id="t-excluded">0</b></button>
+  </div>
+  <div class="filters">
+    <input type="search" id="search" placeholder="Search name or slug…" aria-label="Search protocols">
+    <select id="category" aria-label="Category filter"><option value="">All categories</option></select>
+    <select id="chain" aria-label="Chain filter"><option value="">All chains</option></select>
+    <span class="count-badge num" id="match-count">0 / 0</span>
+  </div>
+</section>
+<section class="board card">
+  <table id="table" aria-label="Ranked protocols">
+    <thead><tr>
+      <th data-key="rank" class="sortable">Rank</th>
+      <th data-key="name" class="sortable">Protocol</th>
+      <th data-key="tvl_usd" class="sortable num-r">TVL</th>
+      <th data-key="change_7d" class="sortable num-r">7d Δ</th>
+      <th data-key="age_days" class="sortable num-r">Age</th>
+      <th data-key="category_multiple" class="sortable num-r" id="h-mcat" title="Empirical-Bayes shrunk category MCap/TVL multiple">M<sub>cat</sub></th>
+      <th data-key="implied_value_usd" class="sortable num-r" id="h-fdv">Implied FDV · P25–P75</th>
+      <th class="num-r" id="h-farm">Farm plan</th>
+    </tr></thead>
+    <tbody id="tbody"></tbody>
+  </table>
+</section>
+<footer class="foot">
+  <p>Implied value is this model's own claim about a token a protocol may one day issue — not a prediction of a launch, never a price. The board separates protocols whose token already trades (live comps) from pre-token protocols still to come.</p>
+  <p class="num" id="foot-source"></p>
+</footer>
+<dialog id="drawer" class="drawer">
+  <div class="drawer-head">
+    <div><span class="tier-badge" id="d-tier">—</span><h2 id="d-name">—</h2><p class="d-meta" id="d-meta">—</p></div>
+    <button type="button" class="btn-ghost" id="d-close">Close ✕</button>
+  </div>
+  <div class="drawer-body">
+    <h3>Valuation decomposition</h3>
+    <div class="decomp" id="d-decomp"></div>
+    <p class="sandbox-note num" id="d-note"></p>
+    <h3>Nearest traded comparables <span class="d-sub">same category preferred, matched on log-TVL and chain overlap</span></h3>
+    <table class="comps"><thead><tr><th>Protocol</th><th class="num-r">TVL</th><th class="num-r">MCap</th><th class="num-r">MCap/TVL</th><th class="num-r">Chain hit</th></tr></thead><tbody id="d-comps"></tbody></table>
+    <h3>Deposit sizing</h3>
+    <div class="sizing" id="d-sizing">
+      <button type="button" class="size-btn" data-usd="250">$250</button>
+      <button type="button" class="size-btn active" data-usd="1000">$1K</button>
+      <button type="button" class="size-btn" data-usd="5000">$5K</button>
+      <button type="button" class="size-btn" data-usd="25000">$25K</button>
+      <span class="sizing-out num" id="d-sizing-out">—</span>
+    </div>
+    <h3>Costed farm execution</h3>
+    <ol class="steps" id="d-steps"></ol>
+  </div>
+</dialog>
+<script src="../data.js"></script>
+<script src="model.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
